@@ -201,6 +201,8 @@ run_config = {
     "num_tasks": len(tasks),
     "runtime": RUNTIME,
     "target": TARGET,
+    "tuner": "ga",
+    "method": "autotvm",
 }
 init_wandb_callback(project="TVM", config=run_config)
 # wandb.log({"global.num_tasks": len(tasks)})
