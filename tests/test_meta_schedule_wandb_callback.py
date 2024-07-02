@@ -40,6 +40,10 @@ def test_meta_schedule_wandb_callback():
             return [AllZeroRunnerFuture() for _ in runner_inputs]
 
     wandb_callback = WandbCallback()
+    run_config = {
+        "foo": "bar",
+    }
+    wandb_callback.init_session(project="TVM", config=run_config)
     with tempfile.TemporaryDirectory() as work_dir:
         ms.tune_tir(
             mod=Matmul,
@@ -49,6 +53,7 @@ def test_meta_schedule_wandb_callback():
             runner=AllZeroRunner(),
             measure_callbacks=[wandb_callback]
         )
+    wandb_callback.deinit_session(artifacts=[])
 
 
 if __name__ == "__main__":
