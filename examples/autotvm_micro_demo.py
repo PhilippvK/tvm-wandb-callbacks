@@ -191,100 +191,23 @@ autotune_log_file = pathlib.Path("microtvm_autotune.log.txt")
 if os.path.exists(autotune_log_file):
     os.remove(autotune_log_file)
 
-import wandb
+from wandb_callbacks.autotvm_callback import init_wandb_callback, log_wandb_pre_tune, log_wandb_post_tune, wandb_callback, deinit_wandb_callback
 
-
-
-num_trials = 200
-# start a new wandb run to track this script
-wandb.init(
-    # set the wandb project where this run will be logged
-    project="TVM",
-    # name="custom_name",
-
-    # track hyperparameters and run metadata
-    config={
-        "model": "my-model",
-        "trials": num_trials,
-        "runtime": RUNTIME,
-        "target": TARGET,
-    }
-)
-
-
-def wandb_callback(idx, per_trial=False):
-
-    class _Context(object):
-        """Context to store local variables"""
-
-        def __init__(self):
-            self.best_flops = 0
-            self.cur_flops = 0
-            self.ct = 0
-            self.last_tic = 0
-            self.num_invalid = 0
-
-    ctx = _Context()
-    tic = time.time()
-    ctx.last_tic = tic
-
-    def _callback(tuner, inputs, results):
-
-        flops = 0
-        delta = time.time() - ctx.last_tic
-        delta_per_trial = delta / len(results)
-
-        i = 0
-        for inp, res in zip(inputs, results):
-            i += 1
-            ctx.ct += 1
-            if res.error_no == 0:
-                flops = inp.task.flop / np.mean(res.costs)
-            else:
-                ctx.num_invalid += 1
-            ctx.cur_flops = flops
-            ctx.best_flops = max(flops, ctx.best_flops)
-            if per_trial:
-                total = ctx.last_tic + i * delta_per_trial
-                wandb.log(
-                    {
-                        f"task{idx}.trials": ctx.ct,
-                        f"task{idx}.invalid": ctx.num_invalid,
-                        f"task{idx}.cur_flops": ctx.cur_flops,
-                        f"task{idx}.best_flops": ctx.best_flops,
-                        f"task{idx}.time.total": total,
-                        f"task{idx}.time.trial": delta_per_trial,
-                        f"task{idx}.time.trial.mean": total / ctx.ct,
-                    }
-                )
-        assert ctx.best_flops == tuner.best_flops
-        if not per_trial:
-            total = ctx.last_tic + delta
-            wandb.log(
-                {
-                    f"task{idx}.trials": ctx.ct,
-                    f"task{idx}.invalid": ctx.num_invalid,
-                    f"task{idx}.cur_flops": ctx.cur_flops,
-                    f"task{idx}.best_flops": ctx.best_flops,
-                    f"task{idx}.time.total": total,
-                    f"task{idx}.time.trial": delta_per_trial,
-                    f"task{idx}.time.trial.mean": total / ctx.ct,
-                }
-            )
-
-        ctx.last_tic = time.time()
-
-    return _callback
-
-
-
-wandb.log({"global.num_tasks": len(tasks)})
-wandb.log({"global.max_trials_per_task": num_trials})
+num_trials = 20
+# TODO: per task instead of per_model?
+run_config = {
+    "model": "my-model",
+    "num_trials": num_trials,
+    "num_tasks": len(tasks),
+    "runtime": RUNTIME,
+    "target": TARGET,
+}
+init_wandb_callback(project="TVM", config=run_config)
+# wandb.log({"global.num_tasks": len(tasks)})
+# wandb.log({"global.max_trials_per_task": num_trials})
 for i, task in enumerate(tasks):
-    print("i", i)
     tuner = tvm.autotvm.tuner.GATuner(task)  # TODO avoid duplicate trials
-    sz = len(task.config_space)
-    wandb.log({f"task{i}.config_space_size": sz})
+    log_wandb_pre_tune(i, task)
     tuner.tune(
         n_trial=num_trials,
         measure_option=measure_option,
@@ -296,11 +219,9 @@ for i, task in enumerate(tasks):
         ],
         si_prefix="M",
     )
-    wandb.log({"global.tuned_tasks": i+1})
+    log_wandb_post_tune(i, task)
 
-wandb.save(autotune_log_file)
-
-wandb.finish()
+deinit_wandb_callback(artifacts=[autotune_log_file])
 
 ############################
 # Timing the untuned program
